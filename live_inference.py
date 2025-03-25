@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 """
+Elvyn Cachapero
 The code is edited from docs (https://docs.luxonis.com/projects/api/en/latest/samples/Yolo/tiny_yolo/)
 We add parsing from JSON files that contain configuration
 """
