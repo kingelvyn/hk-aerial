@@ -1,0 +1,16 @@
+[Unit]
+Description=Autonomous startup of virtual environment and python program for object detection
+After=network.target
+
+[Service]
+Type=simple
+User=root
+ExecStart=/home/elvyn/hk-arial/auto-start.sh
+WorkingDirectory=/home/elvyn/hk-arial
+StandardOutput=syslog
+StandardError=syslog
+SyslogIdentifier=hkarial.service
+Restart=on-failure
+
+[Install]
+WantedBy=multi-user.target
