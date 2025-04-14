@@ -1,11 +1,12 @@
 #!/usr/bin/env python3
-"""
+
+'''
 Elvyn Cachapero
 The code is edited from docs (https://docs.luxonis.com/projects/api/en/latest/samples/Yolo/tiny_yolo/)
 We add parsing from JSON files that contain configuration
-"""
+'''
 
-import datetime
+from datetime import datetime
 from pathlib import Path
 import sys
 import cv2
@@ -15,6 +16,22 @@ import time
 import argparse
 import json
 import blobconverter
+import csv
+import signal
+
+# Handling closing signals
+def handle_sigterm(signum, frame):
+    print("[INFO] SIGTERM Received, cleaning up...")
+    video_writer.release()
+    sys.exit(0)
+signal.signal(signal.SIGTERM, handle_sigterm)
+
+# setting up for logging
+timestamp = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
+LOG_PATH = f"/home/hkarial/hk-arial/logs/detection_logs/detections_{timestamp}.csv"
+LOG_FILE = open(LOG_PATH, mode='w', newline='')
+csv_writer = csv.writer(LOG_FILE)
+csv_writer.writerow(['timestamp', 'label', 'confidence', 'xmin', 'ymin', 'xmax', 'ymax'])
 
 # parse arguments
 parser = argparse.ArgumentParser()
@@ -44,6 +61,7 @@ coordinates = metadata.get("coordinates", {})
 anchors = metadata.get("anchors", {})
 anchorMasks = metadata.get("anchor_masks", {})
 iouThreshold = metadata.get("iou_threshold", {})
+
 confidenceThreshold = metadata.get("confidence_threshold", {})
 
 print(metadata)
@@ -73,6 +91,7 @@ xoutRgb.setStreamName("rgb")
 nnOut.setStreamName("nn")
 
 # Properties
+
 camRgb.setPreviewSize(W, H)
 
 camRgb.setResolution(dai.ColorCameraProperties.SensorResolution.THE_1080_P)
@@ -112,9 +131,11 @@ with dai.Device(pipeline) as device:
     # Video Writer Setup
     first_frame = qRgb.get().getCvFrame()  # Get first frame to determine size
     frame_height, frame_width, _ = first_frame.shape
-    fourcc = cv2.VideoWriter_fourcc(*"MJPG")  # Codec for video file
-    # timestamp_min = datetime.now().strftime("%Y_%m_%d_%H_%M")
-    video_writer = cv2.VideoWriter("C:/Users/elvyn/Videos/obj-det-tests/test_%s.avi" %datetime.date.today(), fourcc, 30, (frame_width, frame_height))
+    fourcc = cv2.VideoWriter_fourcc(*'mp4v')
+    video_writer = cv2.VideoWriter(
+        f"/home/hkarial/hk-arial/logs/flight_videos/detection_recording_{timestamp}.mp4",
+        fourcc, 30, (frame_width, frame_height)
+    )
 
     print("Recording started... Press 'q' to stop.")
 
@@ -124,34 +145,65 @@ with dai.Device(pipeline) as device:
         normVals[::2] = frame.shape[1]
         return (np.clip(np.array(bbox), 0, 1) * normVals).astype(int)
 
-    def displayFrame(name, frame, detections):
-        color = (255, 0, 0)
-        for detection in detections:
-            bbox = frameNorm(frame, (detection.xmin, detection.ymin, detection.xmax, detection.ymax))
-            cv2.putText(frame, labels[detection.label], (bbox[0] + 10, bbox[1] + 20), cv2.FONT_HERSHEY_TRIPLEX, 0.5, 255)
-            cv2.putText(frame, f"{int(detection.confidence * 100)}%", (bbox[0] + 10, bbox[1] + 40), cv2.FONT_HERSHEY_TRIPLEX, 0.5, 255)
-            cv2.rectangle(frame, (bbox[0], bbox[1]), (bbox[2], bbox[3]), color, 2)
+    # Uncomment for a live view of detection (requires monitor output)
+    #def displayFrame(name, frame, detections):
+    #    color = (255, 0, 0)
+    #    for detection in detections:
+    #        bbox = frameNorm(frame, (detection.xmin, detection.ymin, detection.xmax, detection.ymax))
+    #        cv2.putText(frame, labels[detection.label], (bbox[0] + 10, bbox[1] + 20), cv2.FONT_HERSHEY_TRIPLEX, 0.5, 255)
+    #        cv2.putText(frame, f"{int(detection.confidence * 100)}%", (bbox[0] + 10, bbox[1] + 40), cv2.FONT_HERSHEY_TRIPLEX, 0.5, 255)
+    #        cv2.rectangle(frame, (bbox[0], bbox[1]), (bbox[2], bbox[3]), color, 2)
         # Show the frame
         cv2.imshow(name, frame)
 
-    while True:
-        inRgb = qRgb.get()
-        inDet = qDet.get()
+    try:
+        while True:
+            inRgb = qRgb.get()
+            inDet = qDet.get()
 
-        if inRgb is not None:
-            frame = inRgb.getCvFrame()
-            cv2.putText(frame, "NN fps: {:.2f}".format(counter / (time.monotonic() - startTime)),
-                        (2, frame.shape[0] - 4), cv2.FONT_HERSHEY_TRIPLEX, 0.4, color2)
+            if inRgb is not None:
+                frame = inRgb.getCvFrame()
+                cv2.putText(frame, "NN fps: {:.2f}".format(counter / (time.monotonic() - startTime)),
+                            (2, frame.shape[0] - 4), cv2.FONT_HERSHEY_TRIPLEX, 0.4, color2)
 
-        if inDet is not None:
-            detections = inDet.detections
-            counter += 1
+            if inDet is not None:
+                detections = inDet.detections
+                counter += 1
 
-        if frame is not None:
-            displayFrame("rgb", frame, detections)
-            video_writer.write(frame)
+                for detection in detections:
+                    csv_writer.writerow([
+                        timestamp,
+                        labels[detection.label] if detection.label < len(labels) else f"id_{detection.label}",
+                        round(detection.confidence, 4),
+                        detection.xmin,
+                        detection.ymin,
+                        detection.xmax,
+                        detection.ymax
+                    ])
 
-        if cv2.waitKey(1) == ord('q'):
-            break
+            if frame is not None:
+                #displayFrame("rgb", frame, detections) # Uncomment only if you have monitor plugged in
+                # Draw all detections on the frame
+                for detection in detections:
+                    bbox = frameNorm(frame, (detection.xmin, detection.ymin, detection.xmax, detection.ymax))
+                    label = labels[detection.label] if detection.label < len(labels) else f"id_{detection.label}"
+                    confidence = int(detection.confidence * 100)
 
-    video_writer.release()
+                    cv2.putText(frame, label, (bbox[0] + 10, bbox[1] + 20), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 0), 1)
+                    cv2.putText(frame, f"{confidence}%", (bbox[0] + 10, bbox[1] + 40), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 0), 1)
+                    cv2.rectangle(frame, (bbox[0], bbox[1]), (bbox[2], bbox[3]), (0, 255, 0), 2)
+
+                video_writer.write(frame)
+
+
+
+            if cv2.waitKey(1) == ord('q'):
+                break
+
+    except KeyboardInterrupt:
+        print ("\n[INFO] Interrupted. Stopping live_inference.py")
+
+    finally:
+        video_writer.release()
+        cv2.destroyAllWindows()
+        print("[INFO] Video saved and resources released.")
