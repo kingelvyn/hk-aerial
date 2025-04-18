@@ -163,6 +163,8 @@ with dai.Device(pipeline) as device:
 
             if inRgb is not None:
                 frame = inRgb.getCvFrame()
+                # Rotate image 180 degrees for upside mounting plan
+                frame = cv2.rotate(frame, cv2.ROTATE_180)
                 cv2.putText(frame, "NN fps: {:.2f}".format(counter / (time.monotonic() - startTime)),
                             (2, frame.shape[0] - 4), cv2.FONT_HERSHEY_TRIPLEX, 0.4, color2)
 
@@ -171,20 +173,34 @@ with dai.Device(pipeline) as device:
                 counter += 1
 
                 for detection in detections:
+                    # Fixing orientation for bounding boxes
+                    ymin_flipped = 1 - detection.ymin
+                    ymax_flipped = 1 - detection.ymax
+                    xmin_flipped = 1 - detection.xmin
+                    xmax_flipped = 1 - detection.xmax
+                    
                     csv_writer.writerow([
                         timestamp,
                         labels[detection.label] if detection.label < len(labels) else f"id_{detection.label}",
                         round(detection.confidence, 4),
-                        detection.xmin,
-                        detection.ymin,
-                        detection.xmax,
-                        detection.ymax
+                        ymin_flipped,
+                        ymax_flipped,
+                        xmin_flipped,
+                        xmax_flipped
                     ])
 
             if frame is not None:
                 #displayFrame("rgb", frame, detections) # Uncomment only if you have monitor plugged in
                 # Draw all detections on the frame
                 for detection in detections:
+                    # Rotating bounding boxes 180 degrees to match camera orientation
+                    flipped_bbox = (
+                        1 - detection.xmax,
+                        1 - detection.ymax,
+                        1 - detection.xmin,
+                        1 - detection.ymin
+                    )
+                    
                     bbox = frameNorm(frame, (detection.xmin, detection.ymin, detection.xmax, detection.ymax))
                     label = labels[detection.label] if detection.label < len(labels) else f"id_{detection.label}"
                     confidence = int(detection.confidence * 100)
