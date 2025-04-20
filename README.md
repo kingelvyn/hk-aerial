@@ -1,3 +1,3 @@
 # hk-arial
-Repo for the senior design project dubbed "HK Arial Drone" 
+Repo for the senior design project dubbed "HK Aerial Drone" 
 Team 41 24-25 @ LSU
