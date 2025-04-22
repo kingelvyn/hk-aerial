@@ -10,6 +10,7 @@ import time
 import subprocess 
 import logging 
 import select
+import csv
 from datetime import datetime 
 from pymavlink import mavutil 
 
@@ -30,6 +31,12 @@ master = mavutil.mavlink_connection(MAVLINK_CONNECTION, baud=57600, source_syste
 # Setup logging 
 logging.basicConfig(filename=LOG_FILE, level=logging.INFO, format='%(asctime)s - %(message)s') 
 
+# CSV Format for MAVLink messages
+csv_log_file = os.path.join(LOG_DIR, f"flightlog_{timestamp}.csv")
+csv_log = open(csv_log_file, mode="w", newline = '')
+csv_writer = csv.writer(csv_log)
+csv_writer.writerow(["timestamp","lat","lon","alt","roll","pitch","yaw","ground_speed","climb"])
+
 # Logging network connection
 #with open("/home/hkarial/hk-arial/logs/network_log.txt", "a") as log:
 #	log.write(f"[{timestamp}] Startup:n")
@@ -47,7 +54,6 @@ logging.info("Heartbeat received from system ID %s", master.target_system)
 detection_proc = None 
 def start_scripts(): 
     global detection_proc
-     
     if detection_proc is None: 
         detection_proc = subprocess.Popen([
             "python", OBJECT_DETECTION_SCRIPT,
@@ -71,9 +77,10 @@ mavlinkFile_handle = None
 try: 
     logging.info("Starting controller loop...") 
     while True:
-        msg = master.recv_match(type="HEARTBEAT", blocking=True, timeout=1) 
+        #msg = master.recv_match(type="HEARTBEAT", blocking=True, timeout=1) 
+        msg = master.recv_match(blocking=True, timeout=1)
         # Logging mavlink data
-        if msg:
+        if msg and msg.get_type() == "HEARTBEAT":
             is_armed = msg.base_mode & mavutil.mavlink.MAV_MODE_FLAG_SAFETY_ARMED 
             if is_armed and not armed:
                 timestamp = datetime.now().strftime("%Y-%m-%d_%H-%M-%S") 
@@ -83,6 +90,7 @@ try:
                 logging.info("Drone armed - logging started...")
                 start_scripts()
                 armed = True
+                time.sleep(0.5)
                 
             elif not is_armed and armed: 
                 master.logfile = None
@@ -94,6 +102,43 @@ try:
                     mavlinkFile_handle = None
                 stop_scripts()
                 armed = False
+                
+        # Custom CSV logs
+        if msg:
+            if msg.get_type() == "GLOBAL_POSITION_INT":
+                csv_writer.writerow([
+                    datetime.now().strftime("%Y-%m-%dT%H:%M:%SZ"),
+                    msg.lat / 1e7,  # Convert to degrees
+                    msg.lon / 1e7,  # Convert to degrees
+                    msg.alt / 1000,  # Convert to meters
+                    "", "", "", "", ""
+                ])
+                csv_log.flush()
+                #logging.info(f"Logged GLOBAL_POSITION_INT: lat={msg.lat/1e7}, lon={msg.lon/1e7}, alt={msg.alt/1000}")
+
+            elif msg.get_type() == "ATTITUDE":
+                csv_writer.writerow([
+                    datetime.now().strftime("%Y-%m-%dT%H:%M:%SZ"),
+                    "", "", "", msg.roll, msg.pitch, msg.yaw, "", ""
+                ])
+                csv_log.flush()
+                #logging.info(f"Logged ATTITUDE: roll={msg.roll}, pitch={msg.pitch}, yaw={msg.yaw}")
+
+            elif msg.get_type() == "VFR_HUD":
+                csv_writer.writerow([
+                    datetime.now().strftime("%Y-%m-%dT%H:%M:%SZ"),
+                    "", "", "", "", "", "", msg.groundspeed, msg.climb
+                ])
+                csv_log.flush()
+                #logging.info(f"Logged VFR_HUD: groundspeed={msg.groundspeed}, climb={msg.climb}")
+
+            elif msg.get_type() == "SYS_STATUS":
+                csv_writer.writerow([
+                    datetime.now().strftime("%Y-%m-%dT%H:%M:%SZ"),
+                    "", "", "", "", "", "", "", msg.battery_remaining
+                ])
+                csv_log.flush()
+                #logging.info(f"Logged SYS_STATUS: battery_remaining={msg.battery_remaining}%")
         
 # Excepts for graceful shutdowns to prevent corruption
 except KeyboardInterrupt: 
@@ -119,3 +164,5 @@ except Exception as e:
             mavlinkFile_handle.close()
     except Exception as e:
         logging.warning("Error while closing log on shutdown - (Exception): %s", e)
+finally:
+    csv_log.close()
