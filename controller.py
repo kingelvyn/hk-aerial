@@ -20,6 +20,9 @@ LOG_DIR = "/home/hkarial/hk-arial/logs/pixhawk_logs"
 CONTROLLER_LOG_DIR = "/home/hkarial/hk-arial/logs/controller_logs"
 LOG_FILE = f"{CONTROLLER_LOG_DIR}/controller_{timestamp}.log" 
 OBJECT_DETECTION_SCRIPT = "/home/hkarial/hk-arial/live_inference.py" 
+#LOGGING_SCRIPT = "/home/hkarial/hk-arial/pixhawk_logs.py" # Deprecated
+#MODEL_PATH = "/home/hkarial/hk-arial/result-v3-yolo11/best_openvino_2022.1_6shave.blob"
+#CONFIG_PATH = "/home/hkarial/hk-arial/result-v3-yolo11/best.json"
 MODEL_PATH = "/home/hkarial/hk-arial/test-model/best_openvino_2022.1_6shave.blob"
 CONFIG_PATH = "/home/hkarial/hk-arial/test-model/best.json"
 master = mavutil.mavlink_connection(MAVLINK_CONNECTION, baud=57600, source_system=255)
@@ -27,7 +30,7 @@ master = mavutil.mavlink_connection(MAVLINK_CONNECTION, baud=57600, source_syste
 # Setup logging 
 logging.basicConfig(filename=LOG_FILE, level=logging.INFO, format='%(asctime)s - %(message)s') 
 
-# Logging network connection, uncomment for connection logs
+# Logging network connection
 #with open("/home/hkarial/hk-arial/logs/network_log.txt", "a") as log:
 #	log.write(f"[{timestamp}] Startup:n")
 #	log.write(os.popen("date").read())
@@ -76,28 +79,28 @@ try:
                 timestamp = datetime.now().strftime("%Y-%m-%d_%H-%M-%S") 
                 log_file = os.path.join(LOG_DIR, f"flightlog_{timestamp}.tlog")
                 mavlinkFile_handle = open(log_file, 'wb')
-                master.logfile_raw = mavlinkFile_handle
+                master.logfile = mavlinkFile_handle
                 logging.info("Drone armed - logging started...")
                 start_scripts()
                 armed = True
-                time.sleep(0.5)
+                
             elif not is_armed and armed: 
-                master.logfile_raw = None
+                master.logfile = None
                 logging.info("Drone disarmed - logging stopped...")
                 if mavlinkFile_handle and not mavlinkFile_handle.closed:
                     mavlinkFile_handle.flush()
                     os.fsync(mavlinkFile_handle.fileno())
                     mavlinkFile_handle.close()
+                    mavlinkFile_handle = None
                 stop_scripts()
                 armed = False
-        time.sleep(1)
         
 # Excepts for graceful shutdowns to prevent corruption
 except KeyboardInterrupt: 
     logging.info("Shutting down due to KeyboardInterrupt.") 
     stop_scripts() 
     try:
-        master.logfile_raw = None
+        master.logfile = None
         if mavlinkFile_handle and not mavlinkFile_handle.closed:
             mavlinkFile_handle.flush()
             os.fsync(mavlinkFile_handle.fileno())
@@ -109,7 +112,7 @@ except Exception as e:
     logging.error("Unhandled exception occurred: %s", e) 
     stop_scripts()
     try:
-        master.logfile_raw = None
+        master.logfile = None
         if mavlinkFile_handle and not mavlinkFile_handle.closed:
             mavlinkFile_handle.flush()
             os.fsync(mavlinkFile_handle.fileno())
